@@ -222,7 +222,8 @@ async def on_message(message):
                     if "23505" in err_str or "teams_team_name_key" in err_str:
                         await message.channel.send(f"⚠️ **Registration Failed:** The team name `{session['team_name']}` is already registered!")
                     else:
-                        await message.channel.send("❌ *Registration could not be completed. Please contact an Administrator.*")
+                        # 💡 RAW DIAGNOSTIC BLOCK: Shows the exact hidden schema error code in Discord chat
+                        await message.channel.send(f"❌ **Database Error Detail:**\n```text\n{err_str}\n```")
                     print(f"Database insertion exception: {e}")
                 finally:
                     del REGISTRATION_STATES[user_id]
