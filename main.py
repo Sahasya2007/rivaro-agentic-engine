@@ -1,4 +1,5 @@
 import os
+import re
 from typing import List, Dict
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -22,7 +23,7 @@ DISCORD_TOKEN: str = os.getenv("DISCORD_TOKEN")
 # Dynamic greeting setup pulled directly from cloud configuration
 CUSTOM_GREETING: str = os.getenv(
     "REGISTRATION_GREETING", 
-    "🛡️ **Registration Started!**\nWhat is your official **Team Name**?"
+    "🛡️ **Registration Started!**\n\nPlease reply with your **Team Name** and **Leader's Phone Number** separated by a comma.\n*Example: Team Solitude, 9876543210*"
 )
 
 if not all([SUPABASE_URL, SUPABASE_KEY, GEMINI_API_KEY, DISCORD_TOKEN]):
@@ -57,13 +58,14 @@ class ExtractedRosterData(BaseModel):
 # =====================================================================
 # PHASE 3: DATABASE RELATIONAL LAYERS (FLAT COLUMN MATRIX)
 # =====================================================================
-def commit_simplified_team_to_db(captain_id: str, team_name: str, roster_list: List[SimplePlayerNode]) -> bool:
-    """Inserts a single team row, takes the key, and writes a flat 1-player-per-column row to players."""
+def commit_simplified_team_to_db(captain_id: str, team_name: str, phone_number: str, roster_list: List[SimplePlayerNode]) -> bool:
+    """Inserts team info with leader phone number, takes the key, and writes a flat 1-player-per-column row to players."""
     
     # 1. Store Header Info inside the 'teams' table
     team_payload = {
         "team_name": team_name,
-        "captain_discord_id": captain_id
+        "captain_discord_id": captain_id,
+        "leader_phone": phone_number
     }
     team_response = supabase_client.table("teams").insert(team_payload).execute()
     
@@ -119,7 +121,7 @@ def parse_text_roster_list(user_raw_text: str) -> ExtractedRosterData:
 # =====================================================================
 @discord_gateway_client.event
 async def on_ready():
-    print(f"\n🤖 Production-Ready Flat-Column Registration Engine Online!")
+    print(f"\n🤖 Production Flat-Column Registration Engine Live!")
     print(f"Connected to Gateway as: {discord_gateway_client.user}")
 
 @discord_gateway_client.event
@@ -136,8 +138,9 @@ async def on_message(message):
             return
             
         REGISTRATION_STATES[user_id] = {
-            "step": "AWAITING_TEAM_NAME",
-            "team_name": ""
+            "step": "AWAITING_TEAM_AND_PHONE",
+            "team_name": "",
+            "phone_number": ""
         }
         
         await message.channel.send(CUSTOM_GREETING)
@@ -153,19 +156,37 @@ async def on_message(message):
     if user_id in REGISTRATION_STATES:
         session = REGISTRATION_STATES[user_id]
 
-        # STEP 1: Process and Lock Team Name Block
-        if session["step"] == "AWAITING_TEAM_NAME":
-            cleaned_name = message.content.strip()
-            if len(cleaned_name) < 2:
-                await message.channel.send("⚠️ Name too short! Enter a valid team name:")
+        # STEP 1: Process and Parse Team Name + Phone Number together
+        if session["step"] == "AWAITING_TEAM_AND_PHONE":
+            raw_input = message.content.strip()
+            
+            if "," not in raw_input:
+                await message.channel.send("⚠️ Please provide both the **Team Name** and **Phone Number** separated by a comma!\n*Example: Team Vandal, 9876543210*")
                 return
                 
-            session["team_name"] = cleaned_name
+            parts = raw_input.split(",", 1)
+            team_name = parts[0].strip()
+            phone_num = parts[1].strip()
+            
+            # Clean up potential extra spaces or characters in the phone string
+            phone_digits = re.sub(r"\D", "", phone_num)
+            
+            if len(team_name) < 2:
+                await message.channel.send("⚠️ Team name too short! Please provide a valid team name:")
+                return
+                
+            if len(phone_digits) < 8:
+                await message.channel.send("⚠️ That doesn't look like a valid phone number. Please check and try again:")
+                return
+                
+            session["team_name"] = team_name
+            session["phone_number"] = phone_digits
             session["step"] = "AWAITING_ROSTER_TEXT"
             
-            # 🎲 RANDOMIZED EXAMPLE SECTION: Uses scrambled non-personal names/ranks
             guide_prompt = (
-                f"✅ Team Name saved as `{cleaned_name}`.\n\n"
+                f"✅ **Team details logged!**\n"
+                f"• Team Name: `{team_name}`\n"
+                f"• Contact Phone: `{phone_digits}`\n\n"
                 f"📝 **Roster Collection Menu:**\n"
                 f"Please type out your **5 players** with their **Riot ID** and **Rank** on separate lines. "
                 f"Example layout format:\n"
@@ -189,8 +210,8 @@ async def on_message(message):
             
             if parsed_roster.is_valid:
                 try:
-                    # Commit using the new flat player-by-player side-by-side columns
-                    commit_simplified_team_to_db(user_id, session["team_name"], parsed_roster.players)
+                    # Pass the parsed strings and the phone numbers safely into the relational tables
+                    commit_simplified_team_to_db(user_id, session["team_name"], session["phone_number"], parsed_roster.players)
                     await message.channel.send(
                         f"🎉 **Registration Successful!**\n"
                         f"🛡️ Team **'{session['team_name']}'** has been successfully cataloged.\n"
@@ -201,7 +222,6 @@ async def on_message(message):
                     if "23505" in err_str or "teams_team_name_key" in err_str:
                         await message.channel.send(f"⚠️ **Registration Failed:** The team name `{session['team_name']}` is already registered!")
                     else:
-                        # Secure layout: hides background details from player view
                         await message.channel.send("❌ *Registration could not be completed. Please contact an Administrator.*")
                     print(f"Database insertion exception: {e}")
                 finally:
