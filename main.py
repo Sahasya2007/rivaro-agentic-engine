@@ -31,10 +31,10 @@ discord_gateway_client = discord.Client(intents=intents)
 
 
 # =====================================================================
-# PHASE 2: DATA BLUEPRINTS (COMPLEX MATRICES)
+# PHASE 2: DATA BLUEPRINTS
 # =====================================================================
 class PlayerRosterNode(BaseModel):
-    """Blueprint structure for an individual team player player."""
+    """Blueprint structure for an individual team player."""
     player_discord_id: str = Field(description="The numeric Discord user ID string (extracted from the mention).")
     riot_id: str = Field(description="The complete In-Game Name / Riot ID string (e.g., Sahasya#123).")
 
@@ -154,8 +154,20 @@ async def on_message(message):
             await message.channel.send(f"⚠️ **Registration Rejected:** {parsed_team.error_message}")
 
 
+def run_dummy_server():
+    """Spins up a lightweight web server to satisfy Render's port check requirements."""
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    print(f"🌍 Dummy Health Check Server running on port {port}")
+    server.serve_forever()
+
+
 # =====================================================================
 # PHASE 6: EXECUTION RUNTIME PIPELINE
 # =====================================================================
 if __name__ == "__main__":
+    # Start the dummy server in a separate background thread so it doesn't block the bot
+    threading.Thread(target=run_dummy_server, daemon=True).start()
+    
+    # Run the Discord bot client loop
     discord_gateway_client.run(DISCORD_TOKEN)
