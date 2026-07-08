@@ -1,4 +1,5 @@
 import os
+from typing import List
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from pydantic import BaseModel, Field
@@ -7,9 +8,8 @@ from google.genai import types
 import discord
 
 # =====================================================================
-# PHASE 1: INITIALIZATION & CLIENT INSTANTIATION
+# PHASE 1: INITIALIZATION
 # =====================================================================
-# Read secret environment keys from your local disk storage (.env file)
 load_dotenv()
 
 SUPABASE_URL: str = os.getenv("SUPABASE_URL")
@@ -17,67 +17,83 @@ SUPABASE_KEY: str = os.getenv("SUPABASE_KEY")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY")
 DISCORD_TOKEN: str = os.getenv("DISCORD_TOKEN")
 
-# Structural Safety Gate: Terminate execution if any setup key is missing
 if not all([SUPABASE_URL, SUPABASE_KEY, GEMINI_API_KEY, DISCORD_TOKEN]):
-    raise ValueError(
-        "CRITICAL ERROR: Missing configuration strings inside the .env file. "
-        "Please ensure SUPABASE_URL, SUPABASE_KEY, GEMINI_API_KEY, and DISCORD_TOKEN are fully set."
-    )
+    raise ValueError("CRITICAL ERROR: Missing configuration strings inside the .env file.")
 
-# Instantiate the client drivers for our database, AI brain, and chat network
 supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Set up the live chat listener configurations
 intents = discord.Intents.default()
-intents.message_content = True  # Explicitly grant permission to read chat text messages
+intents.message_content = True 
 discord_gateway_client = discord.Client(intents=intents)
 
 
 # =====================================================================
-# PHASE 2: ARCHITECTURE LAYER (DATA VALIDATION SCHEMAS)
+# PHASE 2: DATA BLUEPRINTS (COMPLEX MATRICES)
 # =====================================================================
-class ExtractedTeamData(BaseModel):
-    """
-    A rigid data box that forces the AI to structure its thoughts perfectly.
-    This structure maps unstructured strings straight into safe database inputs.
-    """
+class PlayerRosterNode(BaseModel):
+    """Blueprint structure for an individual team player player."""
+    player_discord_id: str = Field(description="The numeric Discord user ID string (extracted from the mention).")
+    riot_id: str = Field(description="The complete In-Game Name / Riot ID string (e.g., Sahasya#123).")
+
+class ExtractedFullTeamData(BaseModel):
+    """Comprehensive blueprint forcing the AI to organize the entire team payload cleanly."""
     team_name: str = Field(description="The formal competitive esports team name.")
-    captain_discord_id: str = Field(description="The unique numerical user ID string of the team captain.")
-    is_valid: bool = Field(description="Set to True ONLY if the team name can be clearly extracted from the text.")
-    error_message: str = Field(description="If is_valid is False, write a polite prompt asking for the team name. Otherwise, leave empty.")
+    captain_discord_id: str = Field(description="The numeric string ID of the team captain.")
+    roster: List[PlayerRosterNode] = Field(description="Array list containing all parsed roster players.")
+    is_valid: bool = Field(description="Set to True ONLY if the team name and at least 5 players are clearly found.")
+    error_message: str = Field(description="If is_valid is False, state why and what information is missing.")
 
 
 # =====================================================================
-# PHASE 3: DATA LAYER (DATABASE WRITE OPERATIONS)
+# PHASE 3: RELATIONAL DATA LOOP OPERATIONS
 # =====================================================================
-def commit_team_to_database(valid_team: ExtractedTeamData) -> dict:
+def commit_full_team_to_database(full_team: ExtractedFullTeamData) -> bool:
     """
-    Takes our clean, validated data object and runs a secure PostgreSQL
-    INSERT query transaction block to write the team permanently into Supabase.
+    Executes a relational database transaction pipeline:
+    1. Inserts the team into 'teams' table and retrieves its UUID.
+    2. Maps that UUID to all roster rows and inserts them into 'players' table.
     """
-    payload = {
-        "team_name": valid_team.team_name,
-        "captain_discord_id": valid_team.captain_discord_id
+    # 1. Insert Team Header Row
+    team_payload = {
+        "team_name": full_team.team_name,
+        "captain_discord_id": full_team.captain_discord_id
     }
+    team_response = supabase_client.table("teams").insert(team_payload).execute()
     
-    # Fire the record packet through the secure database gateway API
-    response = supabase_client.table("teams").insert(payload).execute()
-    return response.data
+    if not team_response.data:
+        raise RuntimeError("Failed to log team row node header.")
+        
+    inserted_team_id = team_response.data[0]["id"] # Extract the generated UUID
+
+    # 2. Map and Insert Roster Nodes Array
+    player_payloads = []
+    for player in full_team.roster:
+        player_payloads.append({
+            "team_id": inserted_team_id, # Link via relational Foreign Key
+            "player_discord_id": player.player_discord_id,
+            "riot_id": player.riot_id
+        })
+        
+    if player_payloads:
+        supabase_client.table("players").insert(player_payloads).execute()
+        
+    return True
 
 
 # =====================================================================
-# PHASE 4: AGENTIC CORE LAYER (THE CONCIERGE AGENT)
+# PHASE 4: AGENTIC PARSING LOOP
 # =====================================================================
-def parse_registration_message(user_chat_text: str, author_id: str) -> ExtractedTeamData:
-    """
-    Hands raw text sentences to the Gemini 2.5 Flash model and forces the
-    output to match our strict Pydantic schema clipboard matrix.
-    """
+def parse_full_registration_message(user_chat_text: str, author_id: str) -> ExtractedFullTeamData:
+    """Hands complex text sentences to Gemini, returning a strictly formatted object list."""
     system_instruction = f"""
-    You are the specialized Rivaro Concierge Agent. Your sole job is to extract the tournament registration details from the user's message.
-    The user's direct Discord ID is: {author_id}. Use this as the captain_discord_id unless they explicitly provide a different one.
-    If the team name is completely missing, vague, or unclear, set is_valid to False and write a helpful error_message.
+    You are the specialized Rivaro Concierge Agent. Your task is to extract the tournament team registration details and full roster profiles.
+    The sender's direct Discord ID is: {author_id}. Use this as the captain_discord_id.
+    
+    Rules:
+    1. Parse every player mentioned or listed. Extract their clean numeric Discord ID out of their mention wrapper (e.g. from <@12345> extract 12345).
+    2. Extract their exact in-game Name/Riot ID tag.
+    3. If there are fewer than 5 players listed or the team name is completely missing, set is_valid to False and populate the error_message.
     """
 
     response = ai_client.models.generate_content(
@@ -86,61 +102,58 @@ def parse_registration_message(user_chat_text: str, author_id: str) -> Extracted
         config=types.GenerateContentConfig(
             system_instruction=system_instruction,
             response_mime_type="application/json",
-            response_schema=ExtractedTeamData, # Forces structural alignment
-            temperature=0.1 # Enforces precise accuracy over creative variance
+            response_schema=ExtractedFullTeamData,
+            temperature=0.1
         ),
     )
-    return ExtractedTeamData.model_validate_json(response.text)
+    return ExtractedFullTeamData.model_validate_json(response.text)
 
 
 # =====================================================================
-# PHASE 5: REAL-TIME GATEWAY CONNECTION EVENTS
+# PHASE 5: LIVE WEB SOCKET NETWORK EVENT LOOPS
 # =====================================================================
 @discord_gateway_client.event
 async def on_ready():
-    """Callback event loop initialization signal. Fires when connection to Discord succeeds."""
-    print(f"\n🤖 Rivaro Agentic AI Ingestion Pipeline Online!")
-    print(f"Connected to Discord Gateway as: {discord_gateway_client.user}")
-    print("Database connection verified. Listening for real-time registrations...")
+    print(f"\n🤖 Unified Rivaro Multi-Agent Workforce Online!")
+    print(f"Connected to Gateway as: {discord_gateway_client.user}")
+    print("Awaiting full team roster registrations...")
 
 @discord_gateway_client.event
 async def on_message(message):
-    """Listens continuously to every single string payload broadcasted across your server channels."""
-    # Security Constraint: Avoid infinite loops by ignoring messages sent by our own bot
     if message.author == discord_gateway_client.user:
         return
 
-    # Trigger Ingestion Hook if a user uses our structural command prefix
-    if message.content.startswith("!register"):
-        # Strip the activation command prefix to isolate user content text
-        raw_user_input = message.content.replace("!register", "").strip()
+    if message.content.startswith("!register_team"):
+        raw_user_input = message.content.replace("!register_team", "").strip()
         sender_id = str(message.author.id)
         
-        # Provide immediate user interface typing feedback in chat
-        await message.channel.send("⏳ *Rivaro Concierge Agent is parsing your registration details...*")
+        await message.channel.send("⏳ *Concierge Agent is parsing your entire team roster structure...*")
         
-        # Execute the AI brain extraction module pipeline
-        parsed_result = parse_registration_message(raw_user_input, sender_id)
+        # Parse the structured model array
+        parsed_team = parse_full_registration_message(raw_user_input, sender_id)
         
-        # The Agentic Decision Loop
-        if parsed_result.is_valid:
+        if parsed_team.is_valid:
             try:
-                # Commit the verified data into the persistent cloud ledger
-                commit_team_to_database(parsed_result)
-                await message.channel.send(
-                    f"✅ **Registration Successful!** Team **'{parsed_result.team_name}'** has been locked into the global database tracker ledger."
+                # Commit relational data pipeline records
+                commit_full_team_to_database(parsed_team)
+                
+                # Format a rich response block
+                success_message = (
+                    f"✅ **Team Registration Complete!**\n"
+                    f"🛡️ **Team Name:** `{parsed_team.team_name}`\n"
+                    f"👥 **Players Registered:** `{len(parsed_team.roster)}` players successfully synced to the database cloud tracker."
                 )
+                await message.channel.send(success_message)
+                
             except Exception as db_err:
-                await message.channel.send("❌ *Database Transaction Failed. Please contact an Administrator.*")
-                print(f"Database insertion exception log: {db_err}")
+                await message.channel.send("❌ *Database Roster Transaction Failed.*")
+                print(f"Database relational error trace: {db_err}")
         else:
-            # Autonomous Error Feedback Delivery directly back to the active channel node
-            await message.channel.send(f"⚠️ {parsed_result.error_message}")
+            await message.channel.send(f"⚠️ **Registration Rejected:** {parsed_team.error_message}")
 
 
 # =====================================================================
-# PHASE 6: PROCESS EXECUTION ENTRYPOINT
+# PHASE 6: EXECUTION RUNTIME PIPELINE
 # =====================================================================
 if __name__ == "__main__":
-    # Boots up the background network handshake protocol block loop
     discord_gateway_client.run(DISCORD_TOKEN)
