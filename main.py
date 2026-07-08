@@ -69,7 +69,8 @@ def commit_simplified_team_to_db(captain_id: str, team_name: str, roster_list: L
     if not team_response.data:
         raise RuntimeError("Database tracking team insertion rejected.")
         
-    inserted_team_id = team_response.data[0]["id"]
+    # ✅ CORRECTED KEY: Grabs 'team_id' instead of plain 'id' to match your database schema
+    inserted_team_id = team_response.data[0]["team_id"]
 
     # 2. Map and Insert Player Records with a numeric placeholder string to pass structural constraints
     player_payloads = []
@@ -196,7 +197,7 @@ async def on_message(message):
                         f"All 5 player slots and skill tiers are fully synced to your Supabase ledger!"
                     )
                 except Exception as e:
-                    await message.channel.send("❌ *Database engine transactional failure.*")
+                    await message.channel.send("❌ *Database transaction error occurred writing rows.*")
                     print(f"Database insertion exception: {e}")
                 finally:
                     # Purge isolated profile memory map state from execution layer cache
