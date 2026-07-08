@@ -19,6 +19,12 @@ SUPABASE_KEY: str = os.getenv("SUPABASE_KEY")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY")
 DISCORD_TOKEN: str = os.getenv("DISCORD_TOKEN")
 
+# Dynamic greeting setup pulled directly from cloud configuration
+CUSTOM_GREETING: str = os.getenv(
+    "REGISTRATION_GREETING", 
+    "🛡️ **Registration Started!**\nWhat is your official **Team Name**?"
+)
+
 if not all([SUPABASE_URL, SUPABASE_KEY, GEMINI_API_KEY, DISCORD_TOKEN]):
     raise ValueError("CRITICAL ERROR: Missing configuration strings inside the .env file.")
 
@@ -112,7 +118,7 @@ def parse_text_roster_list(user_raw_text: str) -> ExtractedRosterData:
 # =====================================================================
 @discord_gateway_client.event
 async def on_ready():
-    print(f"\n🤖 Rivaro Production-Ready Registration Engine Online!")
+    print(f"\n🤖 Dynamic Registration Engine Online!")
     print(f"Connected to Gateway as: {discord_gateway_client.user}")
 
 @discord_gateway_client.event
@@ -133,8 +139,8 @@ async def on_message(message):
             "team_name": ""
         }
         
-        # Custom Greeting Prompt Card 
-        await message.channel.send("🛡️ **Rivaro Season 2 Registration Started!**\nWhat is your official **Team Name**?")
+        # Uses your custom dashboard text configuration smoothly 
+        await message.channel.send(CUSTOM_GREETING)
         return
 
     # Cancel Catch Escape Hatch
