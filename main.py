@@ -112,7 +112,7 @@ def parse_text_roster_list(user_raw_text: str) -> ExtractedRosterData:
 # =====================================================================
 @discord_gateway_client.event
 async def on_ready():
-    print(f"\n🤖 Single-Row Dynamic Registration Engine Online!")
+    print(f"\n🤖 Diagnostic Single-Row Registration Engine Online!")
     print(f"Connected to Gateway as: {discord_gateway_client.user}")
 
 @discord_gateway_client.event
@@ -195,7 +195,8 @@ async def on_message(message):
                     if "23505" in err_str or "teams_team_name_key" in err_str:
                         await message.channel.send(f"⚠️ **Registration Failed:** The team name `{session['team_name']}` is already registered!")
                     else:
-                        await message.channel.send("❌ *Database transaction error occurred writing rows.*")
+                        # 💡 FORCES THE EXACT SYSTEM ERROR CODE TO DISPLAY DIRECTLY IN DISCORD CHAT
+                        await message.channel.send(f"❌ **Database Error Detail:**\n```text\n{err_str}\n```")
                     print(f"Database insertion exception: {e}")
                 finally:
                     # Purge isolated profile memory map state from execution layer cache
