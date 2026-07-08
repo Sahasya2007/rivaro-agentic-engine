@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
 import discord
+import threading
+from http.server import SimpleHTTPRequestHandler, HTTPServer
 
 # =====================================================================
 # PHASE 1: INITIALIZATION
