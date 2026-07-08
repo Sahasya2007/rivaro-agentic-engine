@@ -55,35 +55,28 @@ class ExtractedRosterData(BaseModel):
 
 
 # =====================================================================
-# PHASE 3: DATABASE TRANS-ACTION PERSISTENCE LAYERS
+# PHASE 3: DATABASE SINGLE ROW TRANS-ACTION LAYER
 # =====================================================================
 def commit_simplified_team_to_db(captain_id: str, team_name: str, roster_list: List[SimplePlayerNode]) -> bool:
-    """Inserts team header records, grabs the UUID, and injects player nodes array."""
-    # 1. Store Team Header Row
+    """Bundles all player details into flat array arrays and commits a single row to 'teams'."""
+    
+    # Extract the raw Riot IDs and Ranks into two flat python lists
+    riot_ids_array = [player.riot_id for player in roster_list]
+    ranks_array = [player.rank for player in roster_list]
+    
+    # Combine everything into ONE single team payload row instead of separate player rows
     team_payload = {
         "team_name": team_name,
-        "captain_discord_id": captain_id
+        "captain_discord_id": captain_id,
+        "player_riot_ids": riot_ids_array,  # Pushes all 5 items side-by-side into a single cell
+        "player_ranks": ranks_array        # Pushes all 5 items side-by-side into a single cell
     }
+    
+    # Execute a single insertion row transaction
     team_response = supabase_client.table("teams").insert(team_payload).execute()
     
     if not team_response.data:
         raise RuntimeError("Database tracking team insertion rejected.")
-        
-    # ✅ CORRECTED KEY: Grabs 'team_id' instead of plain 'id' to match your database schema
-    inserted_team_id = team_response.data[0]["team_id"]
-
-    # 2. Map and Insert Player Records with a numeric placeholder string to pass structural constraints
-    player_payloads = []
-    for player in roster_list:
-        player_payloads.append({
-            "team_id": inserted_team_id,
-            "player_discord_id": "000000000000000000",  # Safely passes database character/numeric constraints
-            "riot_id": player.riot_id,
-            "rank": player.rank
-        })
-        
-    if player_payloads:
-        supabase_client.table("players").insert(player_payloads).execute()
         
     return True
 
@@ -119,7 +112,7 @@ def parse_text_roster_list(user_raw_text: str) -> ExtractedRosterData:
 # =====================================================================
 @discord_gateway_client.event
 async def on_ready():
-    print(f"\n🤖 Dynamic Registration Engine Online!")
+    print(f"\n🤖 Single-Row Dynamic Registration Engine Online!")
     print(f"Connected to Gateway as: {discord_gateway_client.user}")
 
 @discord_gateway_client.event
@@ -194,10 +187,15 @@ async def on_message(message):
                     await message.channel.send(
                         f"🎉 **Registration Successful!**\n"
                         f"🛡️ Team **'{session['team_name']}'** has been successfully cataloged.\n"
-                        f"All 5 player slots and skill tiers are fully synced to your Supabase ledger!"
+                        f"The team and its 5-man roster arrays have been compressed into a single data row!"
                     )
                 except Exception as e:
-                    await message.channel.send("❌ *Database transaction error occurred writing rows.*")
+                    err_str = str(e)
+                    # Graceful user check for unique column index constraints
+                    if "23505" in err_str or "teams_team_name_key" in err_str:
+                        await message.channel.send(f"⚠️ **Registration Failed:** The team name `{session['team_name']}` is already registered!")
+                    else:
+                        await message.channel.send("❌ *Database transaction error occurred writing rows.*")
                     print(f"Database insertion exception: {e}")
                 finally:
                     # Purge isolated profile memory map state from execution layer cache
