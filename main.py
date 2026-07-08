@@ -68,8 +68,8 @@ def commit_simplified_team_to_db(captain_id: str, team_name: str, roster_list: L
     team_payload = {
         "team_name": team_name,
         "captain_discord_id": captain_id,
-        "player_riot_ids": riot_ids_array,  # Pushes all 5 items side-by-side into a single cell
-        "player_ranks": ranks_array        # Pushes all 5 items side-by-side into a single cell
+        "player_riot_ids": riot_ids_array,  
+        "player_ranks": ranks_array        
     }
     
     # Execute a single insertion row transaction
@@ -112,7 +112,7 @@ def parse_text_roster_list(user_raw_text: str) -> ExtractedRosterData:
 # =====================================================================
 @discord_gateway_client.event
 async def on_ready():
-    print(f"\n🤖 Diagnostic Single-Row Registration Engine Online!")
+    print(f"\n🤖 Production-Ready Registration Engine Online!")
     print(f"Connected to Gateway as: {discord_gateway_client.user}")
 
 @discord_gateway_client.event
@@ -133,7 +133,6 @@ async def on_message(message):
             "team_name": ""
         }
         
-        # Uses your custom dashboard text configuration smoothly 
         await message.channel.send(CUSTOM_GREETING)
         return
 
@@ -187,19 +186,17 @@ async def on_message(message):
                     await message.channel.send(
                         f"🎉 **Registration Successful!**\n"
                         f"🛡️ Team **'{session['team_name']}'** has been successfully cataloged.\n"
-                        f"The team and its 5-man roster arrays have been compressed into a single data row!"
+                        f"Your registration is locked in for the tournament!"
                     )
                 except Exception as e:
                     err_str = str(e)
-                    # Graceful user check for unique column index constraints
                     if "23505" in err_str or "teams_team_name_key" in err_str:
                         await message.channel.send(f"⚠️ **Registration Failed:** The team name `{session['team_name']}` is already registered!")
                     else:
-                        # 💡 FORCES THE EXACT SYSTEM ERROR CODE TO DISPLAY DIRECTLY IN DISCORD CHAT
-                        await message.channel.send(f"❌ **Database Error Detail:**\n```text\n{err_str}\n```")
+                        # 📦 CLEANED UP: Players will only see a clean, professional note now
+                        await message.channel.send("❌ *Registration could not be completed. Please contact an Administrator.*")
                     print(f"Database insertion exception: {e}")
                 finally:
-                    # Purge isolated profile memory map state from execution layer cache
                     del REGISTRATION_STATES[user_id]
             else:
                 await message.channel.send(
@@ -218,8 +215,5 @@ def run_dummy_server():
     server.serve_forever()
 
 if __name__ == "__main__":
-    # Launch background thread daemon so it never breaks the core bot connection
     threading.Thread(target=run_dummy_server, daemon=True).start()
-    
-    # Establish WebSocket stream to Discord
     discord_gateway_client.run(DISCORD_TOKEN)
