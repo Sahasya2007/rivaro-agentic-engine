@@ -16,6 +16,10 @@ from http.server import SimpleHTTPRequestHandler, HTTPServer
 # =====================================================================
 load_dotenv()
 
+# 🎛️ DYNAMIC CLOUD CONFIGURATION INTERFACE
+# Pulls directly from Render Env configuration panel. Defaults to 'FREE' if missing.
+TOURNAMENT_MODE: str = os.getenv("TOURNAMENT_MODE", "FREE").upper()
+
 SUPABASE_URL: str = os.getenv("SUPABASE_URL")
 SUPABASE_KEY: str = os.getenv("SUPABASE_KEY")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY")
@@ -38,7 +42,6 @@ discord_gateway_client = discord.Client(intents=intents)
 
 REGISTRATION_STATES: Dict[str, dict] = {}
 
-# Dictionary matrix to convert text ranks into calculated skill scores
 VALORANT_RANK_WEIGHTS: Dict[str, int] = {
     "iron": 1, "bronze": 2, "silver": 3, "gold": 4, 
     "platinum": 5, "diamond": 6, "ascendant": 7, 
@@ -65,11 +68,22 @@ class ExtractedRosterData(BaseModel):
 # PHASE 3: DATABASE RELATIONAL LAYERS (TEAMS, PLAYERS & MATCHES)
 # =====================================================================
 def commit_simplified_team_to_db(captain_id: str, team_name: str, phone_number: str, roster_list: List[SimplePlayerNode]) -> bool:
-    """Inserts team header details and packs flat individual player metrics side-by-side."""
+    """Inserts team header details dynamically based on global tournament operational parameters."""
+    
+    # 🤖 CLOUD MODE EVALUATOR: Configures system properties instantly
+    if TOURNAMENT_MODE == "FREE":
+        init_verification = True
+        init_payment = "FREE_ENTRY"
+    else:
+        init_verification = False
+        init_payment = "PENDING"
+
     team_payload = {
         "team_name": team_name,
         "captain_discord_id": captain_id,
-        "leader_phone": phone_number
+        "leader_phone": phone_number,
+        "is_verified": init_verification,
+        "payment_status": init_payment
     }
     team_response = supabase_client.table("teams").insert(team_payload).execute()
     
@@ -122,7 +136,8 @@ def parse_text_roster_list(user_raw_text: str) -> ExtractedRosterData:
 # =====================================================================
 @discord_gateway_client.event
 async def on_ready():
-    print(f"\n🤖 Production Balanced Skill-Based Tournament Engine Live!")
+    print(f"\n🤖 Dynamic Tournament Infrastructure Engine Online!")
+    print(f"Loaded Cloud Format Context: [{TOURNAMENT_MODE}]")
     print(f"Connected to Gateway as: {discord_gateway_client.user}")
 
 
@@ -139,9 +154,9 @@ async def on_message(message):
             await message.channel.send("❌ **Access Denied:** Only tournament administrators can generate brackets.")
             return
 
-        await message.channel.send("⚖️ *Filtering paid teams and calculating fair bracket pairings...*")
+        await message.channel.send("⚖️ *Filtering eligible tournament rosters and calculating fair bracket pairings...*")
 
-        # 🔒 SECURITY SELECTION: We added .eq("is_verified", True) so unpaid teams are ignored completely
+        # Fetches only teams marked True (Free mode handles this automatically at signup)
         teams_res = supabase_client.table("teams").select("team_id, team_name, captain_discord_id").eq("is_verified", True).execute()
         players_res = supabase_client.table("players").select("team_id, player_1, player_2, player_3, player_4, player_5").execute()
 
@@ -149,10 +164,9 @@ async def on_message(message):
         all_players = {row["team_id"]: row for row in players_res.data}
 
         if len(all_teams) < 2:
-            await message.channel.send("⚠️ Cannot run matchmaking pairs. You need at least **2 VERIFIED (PAID)** teams inside your database pool!")
+            await message.channel.send("⚠️ Matchmaking pool empty. You need at least **2 APPROVED/VERIFIED** teams inside your database pool!")
             return
 
-        # 2. Compute dynamic Team MMR Based on parsed rank profiles
         team_skill_manifest = []
         for team in all_teams:
             t_id = team["team_id"]
@@ -180,7 +194,6 @@ async def on_message(message):
                 "skill": avg_skill_score
             })
 
-        # 3. Sort teams linearly by cumulative skill score
         team_skill_manifest.sort(key=lambda x: x["skill"], reverse=True)
 
         bye_team = None
@@ -188,7 +201,6 @@ async def on_message(message):
             lower_half_index = random.randint(len(team_skill_manifest) // 2, len(team_skill_manifest) - 1)
             bye_team = team_skill_manifest.pop(lower_half_index)
 
-        # 4. Split sorted teams into High Seeds vs Low Seeds pools
         midpoint = len(team_skill_manifest) // 2
         high_seeds = team_skill_manifest[:midpoint]
         low_seeds = team_skill_manifest[midpoint:]
@@ -196,7 +208,6 @@ async def on_message(message):
         low_seeds.reverse()
         match_fixtures = []
 
-        # 5. Insert pairs into the matches scorecard ledger matrix
         for i in range(len(high_seeds)):
             t1 = high_seeds[i]
             t2 = low_seeds[i]
@@ -210,9 +221,8 @@ async def on_message(message):
             supabase_client.table("matches").insert(match_payload).execute()
             match_fixtures.append((t1, t2))
 
-        # 6. Announce the fair-seeded pairs to the Discord Server
         announcement = "⚔️ **AUTOMATED COMPETITIVE MATCHMAKING COMPLETE** ⚔️\n" \
-                       "Verified teams have been balanced and seeded dynamically based on player rank rosters:\n\n"
+                       "Eligible teams have been balanced and seeded dynamically based on player rank rosters:\n\n"
         
         for idx, (t1, t2) in enumerate(match_fixtures, 1):
             announcement += f"**Match {idx}:** `{t1['team_name']}` (Seed Rating: {t1['skill']:.1f}) vs `{t2['team_name']}` (Seed Rating: {t2['skill']:.1f})\n"
@@ -307,10 +317,16 @@ async def on_message(message):
             if parsed_roster.is_valid:
                 try:
                     commit_simplified_team_to_db(user_id, session["team_name"], session["phone_number"], parsed_roster.players)
+                    
+                    if TOURNAMENT_MODE == "FREE":
+                        mode_note = "✨ *Free entry mode active: Your team is instantly verified and cleared for matchmaking!*"
+                    else:
+                        mode_note = "⌛ *Paid entry mode active: Your registration is pending. Brackets will lock once payment is approved by staff.*"
+                        
                     await message.channel.send(
                         f"🎉 **Registration Successful!**\n"
                         f"🛡️ Team **'{session['team_name']}'** has been successfully cataloged.\n"
-                        f"Your registration details are locked in for the tournament!"
+                        f"{mode_note}"
                     )
                 except Exception as db_error:
                     err_str = str(db_error)
