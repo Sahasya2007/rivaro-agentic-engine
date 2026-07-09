@@ -247,6 +247,35 @@ async def on_message(message):
         await message.channel.send(embed=embed)
         return
 
+    # 🛑 ADMIN ROLLBACK COMMAND (Wipes scheduled round 1 scores cleanly)
+    if message.content.startswith("!cancel_matches") or message.content.startswith("!cancel_teams"):
+        if not message.author.guild_permissions.administrator:
+            await message.channel.send("❌ **Access Denied:** Only tournament administrators can rollback brackets.")
+            return
+
+        status_msg = await message.channel.send("🗑️ *Connecting to database matrix to clear match profiles...*")
+
+        try:
+            supabase_client.table("matches")\
+                .delete()\
+                .eq("match_status", "SCHEDULED")\
+                .eq("match_stage", "ROUND_1")\
+                .execute()
+
+            embed = discord.Embed(
+                title="🛑 MATCHMAKING CANCELLED & RESET",
+                description="All scheduled **Round 1** match scorecards have been safely deleted from the database ledger.\n\nYou can now re-verify teams and run `!generate_teams` again whenever you are ready.",
+                color=discord.Color.orange()
+            )
+            embed.set_footer(text="Rivaro Gaming Tournament Engine • Database Reset Successful")
+            
+            await status_msg.delete()
+            await message.channel.send(embed=embed)
+            
+        except Exception as err:
+            print(f"Rollback failure: {err}")
+            await status_msg.edit(content="❌ *Database rejection: Could not clear active match entries at this time.*")
+        return
 
     # 🛡️ COMMAND: TEAM REGISTRATION TRIGGER
     if message.content.startswith("!register_team"):
@@ -263,7 +292,7 @@ async def on_message(message):
         await message.channel.send(CUSTOM_GREETING)
         return
 
-    # Cancel Catch Escape Hatch
+    # Cancel Catch Escape Hatch for registration state
     if message.content == "!cancel" and user_id in REGISTRATION_STATES:
         del REGISTRATION_STATES[user_id]
         await message.channel.send("🛑 *Registration process dropped. Session memory cleaned.*")
