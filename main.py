@@ -206,7 +206,14 @@ async def on_message(message):
             await message.channel.send("⏳ *Processing and verifying your roster list...*")
             
             # Fire parsing routine
-            parsed_roster = parse_text_roster_list(message.content)
+            try:
+                parsed_roster = parse_text_roster_list(message.content)
+            except Exception as ai_error:
+                print(f"CRITICAL AI FAILURE: {ai_error}")
+                # 💡 TEMP AI DEBUG LINE
+                await message.channel.send(f"❌ **Internal AI Parse Error:**\n```text\n{str(ai_error)}\n```")
+                del REGISTRATION_STATES[user_id]
+                return
             
             if parsed_roster.is_valid:
                 try:
@@ -217,14 +224,14 @@ async def on_message(message):
                         f"🛡️ Team **'{session['team_name']}'** has been successfully cataloged.\n"
                         f"Your registration details are locked in for the tournament!"
                     )
-                except Exception as e:
-                    err_str = str(e)
+                except Exception as db_error:
+                    err_str = str(db_error)
                     if "23505" in err_str or "teams_team_name_key" in err_str:
                         await message.channel.send(f"⚠️ **Registration Failed:** The team name `{session['team_name']}` is already registered!")
                     else:
-                        # ✨ Hides background details from player view securely
-                        await message.channel.send("❌ *Registration could not be completed. Please contact an Administrator.*")
-                    print(f"Database insertion exception: {e}")
+                        # 💡 TEMP DATABASE DEBUG LINE
+                        await message.channel.send(f"❌ **Internal Database Error:**\n```text\n{err_str}\n```")
+                    print(f"Database insertion exception: {db_error}")
                 finally:
                     del REGISTRATION_STATES[user_id]
             else:
