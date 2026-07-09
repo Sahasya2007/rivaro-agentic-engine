@@ -17,7 +17,6 @@ from http.server import SimpleHTTPRequestHandler, HTTPServer
 load_dotenv()
 
 # 🎛️ DYNAMIC CLOUD CONFIGURATION INTERFACE
-# Pulls directly from Render Env configuration panel. Defaults to 'FREE' if missing.
 TOURNAMENT_MODE: str = os.getenv("TOURNAMENT_MODE", "FREE").upper()
 
 SUPABASE_URL: str = os.getenv("SUPABASE_URL")
@@ -69,8 +68,6 @@ class ExtractedRosterData(BaseModel):
 # =====================================================================
 def commit_simplified_team_to_db(captain_id: str, team_name: str, phone_number: str, roster_list: List[SimplePlayerNode]) -> bool:
     """Inserts team header details dynamically based on global tournament operational parameters."""
-    
-    # 🤖 CLOUD MODE EVALUATOR: Configures system properties instantly
     if TOURNAMENT_MODE == "FREE":
         init_verification = True
         init_payment = "FREE_ENTRY"
@@ -149,12 +146,12 @@ async def on_message(message):
     user_id = str(message.author.id)
 
     # ⚔️ SECURITY CONTROLLED AUTOMATED MATCHMAKING GENERATOR (ADMINS ONLY)
-    if message.content.startswith("!generate_matches"):
+    if message.content.startswith("!generate_matches") or message.content.startswith("!generate_teams"):
         if not message.author.guild_permissions.administrator:
             await message.channel.send("❌ **Access Denied:** Only tournament administrators can generate brackets.")
             return
 
-        await message.channel.send("⚖️ *Filtering eligible tournament rosters and calculating fair bracket pairings...*")
+        status_msg = await message.channel.send("⚖️ *Filtering eligible tournament rosters and calculating fair bracket pairings...*")
 
         # Fetches only teams marked True (Free mode handles this automatically at signup)
         teams_res = supabase_client.table("teams").select("team_id, team_name, captain_discord_id").eq("is_verified", True).execute()
@@ -164,7 +161,7 @@ async def on_message(message):
         all_players = {row["team_id"]: row for row in players_res.data}
 
         if len(all_teams) < 2:
-            await message.channel.send("⚠️ Matchmaking pool empty. You need at least **2 APPROVED/VERIFIED** teams inside your database pool!")
+            await status_msg.edit(content="⚠️ Matchmaking pool empty. You need at least **2 APPROVED/VERIFIED** teams inside your database pool!")
             return
 
         team_skill_manifest = []
@@ -221,17 +218,33 @@ async def on_message(message):
             supabase_client.table("matches").insert(match_payload).execute()
             match_fixtures.append((t1, t2))
 
-        announcement = "⚔️ **AUTOMATED COMPETITIVE MATCHMAKING COMPLETE** ⚔️\n" \
-                       "Eligible teams have been balanced and seeded dynamically based on player rank rosters:\n\n"
-        
+        # 🎨 DISCORD VISUAL EMBED SETUP
+        embed = discord.Embed(
+            title="⚔️ TOURNAMENT MATCH FIXTURES GENERATED ⚔️",
+            description=f"Operational Mode: **{TOURNAMENT_MODE}**\nTeams have been dynamically balanced and paired based on average roster ranks.",
+            color=discord.Color.red()
+        )
+
         for idx, (t1, t2) in enumerate(match_fixtures, 1):
-            announcement += f"**Match {idx}:** `{t1['team_name']}` (Seed Rating: {t1['skill']:.1f}) vs `{t2['team_name']}` (Seed Rating: {t2['skill']:.1f})\n"
-            announcement += f"• Matchup captains: <@{t1['captain_discord_id']}> vs <@{t2['captain_discord_id']}>\n\n"
+            match_value = f"**Team 1:** `{t1['team_name']}` (Rating: {t1['skill']:.1f}) — <@{t1['captain_discord_id']}>\n" \
+                          f"**Team 2:** `{t2['team_name']}` (Rating: {t2['skill']:.1f}) — <@{t2['captain_discord_id']}>"
+            embed.add_field(
+                name=f"🎮 MATCH {idx} (ROUND 1)",
+                value=match_value,
+                inline=False
+            )
 
         if bye_team:
-            announcement += f"✨ `{bye_team['team_name']}` (<@{bye_team['captain_discord_id']}>) received a bracket **BYE** this round and advances smoothly to Round 2!"
+            embed.add_field(
+                name="✨ BRACKET BYE",
+                value=f"`{bye_team['team_name']}` (<@{bye_team['captain_discord_id']}>) received a bye and automatically advances!",
+                inline=False
+            )
 
-        await message.channel.send(announcement)
+        embed.set_footer(text="Rivaro Gaming Tournament Engine • Open Supabase to view live records.")
+        
+        await status_msg.delete()
+        await message.channel.send(embed=embed)
         return
 
 
