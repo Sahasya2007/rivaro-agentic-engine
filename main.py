@@ -205,13 +205,12 @@ async def on_message(message):
         if session["step"] == "AWAITING_ROSTER_TEXT":
             await message.channel.send("⏳ *Processing and verifying your roster list...*")
             
-            # Fire parsing routine
+            # Fire parsing routine with error handling
             try:
                 parsed_roster = parse_text_roster_list(message.content)
             except Exception as ai_error:
                 print(f"CRITICAL AI FAILURE: {ai_error}")
-                # 💡 TEMP AI DEBUG LINE
-                await message.channel.send(f"❌ **Internal AI Parse Error:**\n```text\n{str(ai_error)}\n```")
+                await message.channel.send("❌ *Registration could not be completed due to a processing timeout. Please try again in a moment.*")
                 del REGISTRATION_STATES[user_id]
                 return
             
@@ -229,8 +228,8 @@ async def on_message(message):
                     if "23505" in err_str or "teams_team_name_key" in err_str:
                         await message.channel.send(f"⚠️ **Registration Failed:** The team name `{session['team_name']}` is already registered!")
                     else:
-                        # 💡 TEMP DATABASE DEBUG LINE
-                        await message.channel.send(f"❌ **Internal Database Error:**\n```text\n{err_str}\n```")
+                        # Clean error masking for user interfaces
+                        await message.channel.send("❌ *Registration could not be completed. Please contact an Administrator.*")
                     print(f"Database insertion exception: {db_error}")
                 finally:
                     del REGISTRATION_STATES[user_id]
