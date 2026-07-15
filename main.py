@@ -44,7 +44,7 @@ REGISTRATION_STATES: Dict[str, dict] = {}
 VALORANT_RANK_WEIGHTS: Dict[str, int] = {
     "iron": 1, "bronze": 2, "silver": 3, "gold": 4, 
     "platinum": 5, "diamond": 6, "ascendant": 7, 
-    "immortal": 8, "radiant": 9, "unrated": 3
+    "immortal": 8, "radiant": 9, "unrated": 0
 }
 
 
@@ -397,4 +397,4 @@ def run_dummy_server():
 
 if __name__ == "__main__":
     threading.Thread(target=run_dummy_server, daemon=True).start()
-    discord_gateway_client.run(DISCORD_TOKEN)
+    discord_gateway_client.run(DISCORD_TOKEN)   
